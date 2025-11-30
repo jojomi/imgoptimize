@@ -2,8 +2,14 @@ package main
 
 import (
 	"fmt"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
+	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/jojomi/imgoptimize/optimizer"
@@ -29,8 +35,10 @@ var (
 	verbose       bool
 	inplace       bool
 	skipPostOptim bool
-	width         int
-	height        int
+
+	// width/height flags now accept pixels (e.g. "800") or percent (e.g. "25%")
+	widthStr  string
+	heightStr string
 )
 
 var rootCmd = &cobra.Command{
@@ -61,50 +69,168 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&inplace, "inplace", "i", false, "optimize file in-place")
 	rootCmd.PersistentFlags().BoolVar(&skipPostOptim, "skip-post-optim", false, "skip post-optimization with pngquant/jpegoptim")
 
-	// Root command specific flags for dimensions
-	rootCmd.Flags().IntVar(&width, "width", 0, "target width in pixels (maintains aspect ratio if height not set)")
-	rootCmd.Flags().IntVar(&height, "height", 0, "target height in pixels (maintains aspect ratio if width not set)")
+	// Root command specific flags for dimensions (accept pixels or percent)
+	rootCmd.Flags().StringVar(&widthStr, "width", "", "target width (pixels e.g. 800 or percent e.g. 50%)")
+	rootCmd.Flags().StringVar(&heightStr, "height", "", "target height (pixels e.g. 600 or percent e.g. 50%)")
 
 	rootCmd.AddCommand(scaleDownToFilesizeCmd)
 }
 
 // Root command: optimize with optional resizing
 func runJustOptimize(cmd *cobra.Command, args []string) error {
-	inputFile := args[0]
-
-	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
-		return fmt.Errorf("input file does not exist: %s", inputFile)
+	origInput := args[0]
+	absInput, err := filepath.Abs(origInput)
+	if err != nil {
+		return fmt.Errorf("failed to resolve input path: %w", err)
 	}
 
-	output, err := resolveOutputPath(inputFile, outputPath, inplace)
+	if _, err := os.Stat(absInput); os.IsNotExist(err) {
+		return fmt.Errorf("input file does not exist: %s", absInput)
+	} else if err != nil {
+		return fmt.Errorf("error checking input file: %w", err)
+	}
+
+	// read original image dimensions to resolve percent values
+	f, err := os.Open(absInput)
+	if err != nil {
+		return fmt.Errorf("failed to open input file: %w", err)
+	}
+	cfg, _, err := image.DecodeConfig(f)
+	f.Close()
+	if err != nil {
+		return fmt.Errorf("failed to read image dimensions: %w", err)
+	}
+	origW := cfg.Width
+	origH := cfg.Height
+	if origW <= 0 || origH <= 0 {
+		return fmt.Errorf("invalid image dimensions")
+	}
+
+	// parse width/height flags (pixels or percent)
+	parseDim := func(name, val string, orig int) (set bool, pixels int, isPercent bool, pctVal float64, perr error) {
+		if strings.TrimSpace(val) == "" {
+			return false, 0, false, 0, nil
+		}
+		if strings.HasSuffix(val, "%") {
+			num := strings.TrimSuffix(val, "%")
+			fv, e := strconv.ParseFloat(num, 64)
+			if e != nil {
+				return true, 0, true, 0, fmt.Errorf("invalid %s percentage: %s", name, val)
+			}
+			if fv <= 0 || fv > 100 {
+				return true, 0, true, 0, fmt.Errorf("%s percentage must be >0 and <=100: %s", name, val)
+			}
+			px := int(math.Round(float64(orig) * fv / 100.0))
+			if px < 1 {
+				px = 1
+			}
+			return true, px, true, fv, nil
+		}
+		iv, e := strconv.Atoi(val)
+		if e != nil || iv <= 0 {
+			return true, 0, false, 0, fmt.Errorf("invalid %s pixel value: %s", name, val)
+		}
+		return true, iv, false, 0, nil
+	}
+
+	wSet, wPx, wIsPct, wPctVal, err := parseDim("width", widthStr, origW)
+	if err != nil {
+		return err
+	}
+	hSet, hPx, hIsPct, hPctVal, err := parseDim("height", heightStr, origH)
 	if err != nil {
 		return err
 	}
 
-	origStat, _ := os.Stat(inputFile)
+	// If only one dimension is set and it is percent, mirror percent to the other so aspect ratio is preserved
+	if wSet && !hSet && wIsPct {
+		hSet = true
+		hIsPct = true
+		hPctVal = wPctVal
+		hPx = int(math.Round(float64(origH) * hPctVal / 100.0))
+		if hPx < 1 {
+			hPx = 1
+		}
+	}
+	if hSet && !wSet && hIsPct {
+		wSet = true
+		wIsPct = true
+		wPctVal = hPctVal
+		wPx = int(math.Round(float64(origW) * wPctVal / 100.0))
+		if wPx < 1 {
+			wPx = 1
+		}
+	}
+
+	// If both dimensions are set, ensure the scaling factors are identical (no distortion).
+	// scaling = target / original
+	if wSet && hSet {
+		scaleW := float64(wPx) / float64(origW)
+		scaleH := float64(hPx) / float64(origH)
+		if math.Abs(scaleW-scaleH) > 1e-9 {
+			return fmt.Errorf("--width and --height would change aspect ratio; set only one dimension or provide matching percent values")
+		}
+	}
+
+	output, err := resolveOutputPath(absInput, outputPath, inplace)
+	if err != nil {
+		return err
+	}
+
+	origStat, _ := os.Stat(absInput)
 
 	// Use shared optimization function
 	result, err := optimizer.OptimizeWithoutResize(optimizer.Config{
-		InputPath:     inputFile,
+		InputPath:     absInput,
 		OutputPath:    output,
 		Quality:       quality,
 		StripMetadata: stripMetadata,
 		Silent:        silent,
 		Verbose:       verbose,
 		SkipPostOptim: skipPostOptim,
-		Width:         width,
-		Height:        height,
+		Width: func() int {
+			if wSet {
+				return wPx
+			}
+			return 0
+		}(),
+		Height: func() int {
+			if hSet {
+				return hPx
+			}
+			return 0
+		}(),
 	})
 	if err != nil {
 		return fmt.Errorf("optimization failed: %w", err)
 	}
 
 	if !silent {
-		fmt.Printf("✓ Optimized: %s → %s\n", inputFile, output)
+		fmt.Printf("✓ Optimized: %s → %s\n", absInput, output)
 		fmt.Printf("  Original size: %s\n", formatBytes(origStat.Size()))
-		fmt.Printf("  Final size: %s\n", formatBytes(result.FinalSize))
+		// show final size plus percent smaller/larger compared to original
+		origSize := origStat.Size()
+		finalSize := result.FinalSize
+		if origSize > 0 {
+			ratio := float64(finalSize) / float64(origSize)
+			if finalSize < origSize {
+				pct := int(math.Round((1.0 - ratio) * 100.0))
+				fmt.Printf("  Final size: %s (%d%% smaller)\n", formatBytes(finalSize), pct)
+			} else if finalSize > origSize {
+				pct := int(math.Round((ratio - 1.0) * 100.0))
+				fmt.Printf("  Final size: %s (%d%% larger)\n", formatBytes(finalSize), pct)
+			} else {
+				fmt.Printf("  Final size: %s (no change)\n", formatBytes(finalSize))
+			}
+		} else {
+			fmt.Printf("  Final size: %s\n", formatBytes(result.FinalSize))
+		}
 		if result.Dimensions != "" {
-			fmt.Printf("  Dimensions: %s\n", result.Dimensions)
+			label := "Dimensions"
+			if wSet || hSet {
+				label = "New dimensions"
+			}
+			fmt.Printf("  %s: %s\n", label, result.Dimensions)
 		}
 		if len(result.OptimizersUsed) > 0 {
 			fmt.Printf("  Optimizers: %s\n", strings.Join(result.OptimizersUsed, ", "))
@@ -120,13 +246,19 @@ func runJustOptimize(cmd *cobra.Command, args []string) error {
 // Subcommand: optimize with resizing to target size
 func runOptimizeWithTarget(cmd *cobra.Command, args []string) error {
 	targetSizeStr := args[0]
-	inputFile := args[1]
-
-	if _, err := os.Stat(inputFile); os.IsNotExist(err) {
-		return fmt.Errorf("input file does not exist: %s", inputFile)
+	origInput := args[1]
+	absInput, err := filepath.Abs(origInput)
+	if err != nil {
+		return fmt.Errorf("failed to resolve input path: %w", err)
 	}
 
-	output, err := resolveOutputPath(inputFile, outputPath, inplace)
+	if _, err := os.Stat(absInput); os.IsNotExist(err) {
+		return fmt.Errorf("input file does not exist: %s", absInput)
+	} else if err != nil {
+		return fmt.Errorf("error checking input file: %w", err)
+	}
+
+	output, err := resolveOutputPath(absInput, outputPath, inplace)
 	if err != nil {
 		return err
 	}
@@ -137,7 +269,7 @@ func runOptimizeWithTarget(cmd *cobra.Command, args []string) error {
 	}
 
 	config := optimizer.Config{
-		InputPath:     inputFile,
+		InputPath:     absInput,
 		OutputPath:    output,
 		TargetBytes:   targetBytes,
 		Quality:       quality,
@@ -154,9 +286,25 @@ func runOptimizeWithTarget(cmd *cobra.Command, args []string) error {
 	}
 
 	if !silent {
-		fmt.Printf("✓ Optimized: %s → %s\n", inputFile, output)
-		fmt.Printf("  Original size: %s\n", formatBytes(result.OriginalSize))
-		fmt.Printf("  Final size: %s\n", formatBytes(result.FinalSize))
+		fmt.Printf("✓ Optimized: %s → %s\n", absInput, output)
+		// show final size plus percent change vs original
+		origSize := result.OriginalSize
+		finalSize := result.FinalSize
+		fmt.Printf("  Original size: %s\n", formatBytes(origSize))
+		if origSize > 0 {
+			ratio := float64(finalSize) / float64(origSize)
+			if finalSize < origSize {
+				pct := int(math.Round((1.0 - ratio) * 100.0))
+				fmt.Printf("  Final size: %s (%d%% smaller)\n", formatBytes(finalSize), pct)
+			} else if finalSize > origSize {
+				pct := int(math.Round((ratio - 1.0) * 100.0))
+				fmt.Printf("  Final size: %s (%d%% larger)\n", formatBytes(finalSize), pct)
+			} else {
+				fmt.Printf("  Final size: %s (no change)\n", formatBytes(finalSize))
+			}
+		} else {
+			fmt.Printf("  Final size: %s\n", formatBytes(result.FinalSize))
+		}
 		fmt.Printf("  Scale: %d%%\n", result.FinalScale)
 		fmt.Printf("  Iterations: %d\n", result.Iterations)
 		if len(result.OptimizersUsed) > 0 {
@@ -172,35 +320,39 @@ func runOptimizeWithTarget(cmd *cobra.Command, args []string) error {
 
 // Shared output path resolution logic
 func resolveOutputPath(inputFile, outputPath string, inplace bool) (string, error) {
+	// inputFile expected to be absolute (caller ensures this). Normalize input anyway.
 	absInputFile, err := filepath.Abs(inputFile)
 	if err != nil {
 		return "", fmt.Errorf("failed to get absolute path: %w", err)
 	}
 
 	if inplace {
-		return inputFile, nil
+		return absInputFile, nil
 	}
 
+	var out string
 	if outputPath == "" {
-		ext := filepath.Ext(inputFile)
-		base := strings.TrimSuffix(inputFile, ext)
-		return fmt.Sprintf("%s_optimized%s", base, ext), nil
-	}
-
-	if strings.HasPrefix(outputPath, ":") {
+		ext := filepath.Ext(absInputFile)
+		base := strings.TrimSuffix(absInputFile, ext)
+		out = fmt.Sprintf("%s_optimized%s", base, ext)
+	} else if strings.HasPrefix(outputPath, ":") {
 		inputDir := filepath.Dir(absInputFile)
 		relativeOutput := strings.TrimPrefix(outputPath, ":")
-		return filepath.Join(inputDir, relativeOutput), nil
-	}
-
-	if isFormatOnly(outputPath) {
-		ext := filepath.Ext(inputFile)
-		base := strings.TrimSuffix(inputFile, ext)
+		out = filepath.Join(inputDir, relativeOutput)
+	} else if isFormatOnly(outputPath) {
+		ext := filepath.Ext(absInputFile)
+		base := strings.TrimSuffix(absInputFile, ext)
 		newExt := normalizeExtension(outputPath)
-		return fmt.Sprintf("%s_optimized.%s", base, newExt), nil
+		out = fmt.Sprintf("%s_optimized.%s", base, newExt)
+	} else {
+		out = outputPath
 	}
 
-	return outputPath, nil
+	absOut, err := filepath.Abs(out)
+	if err != nil {
+		return "", fmt.Errorf("failed to get absolute output path: %w", err)
+	}
+	return absOut, nil
 }
 
 func isFormatOnly(output string) bool {
