@@ -23,11 +23,12 @@ You’ll need these command-line tools installed for best results:
 
 - [`ImageMagick`](https://imagemagick.org) (`magick` or `convert`)
 - Optional: `pngquant`, `oxipng`, `jpegoptim`, `mat2`
+- Optional for AVIF: `avifenc` (libavif) – encodes the alpha channel lossless; without it ImageMagick is used and transparent images may show a grey haze on dark backgrounds
 
 Install on Debian/Ubuntu:
 
 ```
-sudo apt install imagemagick pngquant oxipng jpegoptim mat2
+sudo apt install imagemagick pngquant oxipng jpegoptim mat2 libavif-bin
 ```
 
 ## Usage

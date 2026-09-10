@@ -35,9 +35,10 @@ type Result struct {
 }
 
 type Optimizer struct {
-	config    Config
-	toolCache map[string]*toolInfo
-	cacheMux  sync.Mutex
+	config      Config
+	toolCache   map[string]*toolInfo
+	cacheMux    sync.Mutex
+	alphaWarned bool
 }
 
 type toolInfo struct {
@@ -356,8 +357,6 @@ func (o *Optimizer) Optimize() (*Result, error) {
 }
 
 func (o *Optimizer) resizeImageWithDimensions(input, output string, resizeStr string) error {
-	outputExt := strings.ToLower(filepath.Ext(output))
-
 	args := []string{input}
 
 	// Add resize if specified
@@ -368,7 +367,32 @@ func (o *Optimizer) resizeImageWithDimensions(input, output string, resizeStr st
 		}
 	}
 
-	args = append(args,
+	return o.encode(args, output)
+}
+
+func (o *Optimizer) resizeImage(input, output string, scalePercent int) error {
+	args := []string{
+		input,
+		"-resize", fmt.Sprintf("%d%%", scalePercent),
+	}
+
+	return o.encode(args, output)
+}
+
+// encode writes the prepared ImageMagick pipeline (input + resize args) to output.
+// AVIF goes through avifenc when available, because ImageMagick encodes the
+// alpha channel lossy, which lifts alpha=0 pixels and causes a grey haze.
+func (o *Optimizer) encode(magickArgs []string, output string) error {
+	outputExt := strings.ToLower(filepath.Ext(output))
+
+	if outputExt == ".avif" {
+		if available, _ := o.checkTool("avifenc"); available {
+			return o.encodeAVIF(magickArgs, output)
+		}
+		o.warnLossyAlpha(magickArgs[0])
+	}
+
+	args := append(magickArgs,
 		"-quality", strconv.Itoa(o.config.Quality),
 		"-strip", // Strip basic metadata
 	)
@@ -380,57 +404,84 @@ func (o *Optimizer) resizeImageWithDimensions(input, output string, resizeStr st
 
 	args = append(args, output)
 
-	// Check for ImageMagick
-	available, _ := o.checkTool("magick")
-	cmdName := "magick"
-	if !available {
-		available, _ = o.checkTool("convert")
-		if !available {
-			return fmt.Errorf("neither 'magick' nor 'convert' found in PATH")
-		}
-		cmdName = "convert"
+	return o.runImageMagick(args)
+}
+
+// encodeAVIF renders the ImageMagick pipeline to a lossless temp PNG and encodes
+// it with avifenc using lossless alpha.
+func (o *Optimizer) encodeAVIF(magickArgs []string, output string) error {
+	tempPNG := strings.TrimSuffix(output, filepath.Ext(output)) + "_avifsrc.png"
+	defer os.Remove(tempPNG)
+
+	if err := o.runImageMagick(append(magickArgs, "-strip", tempPNG)); err != nil {
+		return err
+	}
+
+	args := []string{
+		"-q", strconv.Itoa(o.config.Quality),
+		"--qalpha", "100",
+		tempPNG,
+		output,
 	}
 
 	if o.config.Verbose {
-		fmt.Printf("[verbose] Executing: %s %s\n", cmdName, strings.Join(args, " "))
+		fmt.Printf("[verbose] Executing: avifenc %s\n", strings.Join(args, " "))
 	}
 
-	cmd := exec.Command(cmdName, args...)
-	output_bytes, err := cmd.CombinedOutput()
+	cmd := exec.Command("avifenc", args...)
+	outputBytes, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("imagemagick failed: %w, output: %s", err, string(output_bytes))
+		return fmt.Errorf("avifenc failed: %w, output: %s", err, string(outputBytes))
 	}
 
 	return nil
 }
 
-func (o *Optimizer) resizeImage(input, output string, scalePercent int) error {
-	outputExt := strings.ToLower(filepath.Ext(output))
+// warnLossyAlpha prints a one-time warning when an image with transparency is
+// encoded to AVIF by ImageMagick because avifenc is missing.
+func (o *Optimizer) warnLossyAlpha(input string) {
+	if o.alphaWarned || o.config.Silent || !o.hasTransparency(input) {
+		return
+	}
+	o.alphaWarned = true
+	fmt.Printf("Warning: avifenc not found, ImageMagick encodes the alpha channel lossy (grey haze on dark backgrounds possible). Install libavif (avifenc) for lossless alpha.\n")
+}
 
-	// Use ImageMagick convert
-	args := []string{
-		input,
-		"-resize", fmt.Sprintf("%d%%", scalePercent),
-		"-quality", strconv.Itoa(o.config.Quality),
-		"-strip", // Strip basic metadata
+func (o *Optimizer) hasTransparency(input string) bool {
+	cmdName, err := o.imageMagickCommand()
+	if err != nil {
+		return false
 	}
 
-	// PNG-specific optimizations
-	if outputExt == ".png" {
-		args = append(args, "-define", "png:compression-level=9")
+	var cmd *exec.Cmd
+	if cmdName == "magick" {
+		cmd = exec.Command("magick", "identify", "-format", "%[opaque]", input)
+	} else {
+		cmd = exec.Command("identify", "-format", "%[opaque]", input)
 	}
 
-	args = append(args, output)
+	outputBytes, err := cmd.Output()
+	if err != nil {
+		return false
+	}
 
-	// Check for ImageMagick
-	available, _ := o.checkTool("magick")
-	cmdName := "magick"
-	if !available {
-		available, _ = o.checkTool("convert")
-		if !available {
-			return fmt.Errorf("neither 'magick' nor 'convert' found in PATH")
-		}
-		cmdName = "convert"
+	return strings.TrimSpace(string(outputBytes)) == "False"
+}
+
+func (o *Optimizer) imageMagickCommand() (string, error) {
+	if available, _ := o.checkTool("magick"); available {
+		return "magick", nil
+	}
+	if available, _ := o.checkTool("convert"); available {
+		return "convert", nil
+	}
+	return "", fmt.Errorf("neither 'magick' nor 'convert' found in PATH")
+}
+
+func (o *Optimizer) runImageMagick(args []string) error {
+	cmdName, err := o.imageMagickCommand()
+	if err != nil {
+		return err
 	}
 
 	if o.config.Verbose {
@@ -438,9 +489,9 @@ func (o *Optimizer) resizeImage(input, output string, scalePercent int) error {
 	}
 
 	cmd := exec.Command(cmdName, args...)
-	output_bytes, err := cmd.CombinedOutput()
+	outputBytes, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("imagemagick failed: %w, output: %s", err, string(output_bytes))
+		return fmt.Errorf("imagemagick failed: %w, output: %s", err, string(outputBytes))
 	}
 
 	return nil
