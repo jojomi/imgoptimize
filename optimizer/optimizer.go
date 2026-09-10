@@ -35,10 +35,11 @@ type Result struct {
 }
 
 type Optimizer struct {
-	config      Config
-	toolCache   map[string]*toolInfo
-	cacheMux    sync.Mutex
-	alphaWarned bool
+	config       Config
+	toolCache    map[string]*toolInfo
+	cacheMux     sync.Mutex
+	alphaWarned  bool
+	transparency map[string]bool
 }
 
 type toolInfo struct {
@@ -49,8 +50,9 @@ type toolInfo struct {
 
 func New(config Config) *Optimizer {
 	return &Optimizer{
-		config:    config,
-		toolCache: make(map[string]*toolInfo),
+		config:       config,
+		toolCache:    make(map[string]*toolInfo),
+		transparency: make(map[string]bool),
 	}
 }
 
@@ -380,16 +382,17 @@ func (o *Optimizer) resizeImage(input, output string, scalePercent int) error {
 }
 
 // encode writes the prepared ImageMagick pipeline (input + resize args) to output.
-// AVIF goes through avifenc when available, because ImageMagick encodes the
-// alpha channel lossy, which lifts alpha=0 pixels and causes a grey haze.
+// Transparent images go to AVIF through avifenc when available, because
+// ImageMagick encodes the alpha channel lossy, which lifts alpha=0 pixels and
+// causes a grey haze. Opaque images stay on the smaller ImageMagick output.
 func (o *Optimizer) encode(magickArgs []string, output string) error {
 	outputExt := strings.ToLower(filepath.Ext(output))
 
-	if outputExt == ".avif" {
+	if outputExt == ".avif" && o.hasTransparency(magickArgs[0]) {
 		if available, _ := o.checkTool("avifenc"); available {
 			return o.encodeAVIF(magickArgs, output)
 		}
-		o.warnLossyAlpha(magickArgs[0])
+		o.warnLossyAlpha()
 	}
 
 	args := append(magickArgs,
@@ -439,8 +442,8 @@ func (o *Optimizer) encodeAVIF(magickArgs []string, output string) error {
 
 // warnLossyAlpha prints a one-time warning when an image with transparency is
 // encoded to AVIF by ImageMagick because avifenc is missing.
-func (o *Optimizer) warnLossyAlpha(input string) {
-	if o.alphaWarned || o.config.Silent || !o.hasTransparency(input) {
+func (o *Optimizer) warnLossyAlpha() {
+	if o.alphaWarned || o.config.Silent {
 		return
 	}
 	o.alphaWarned = true
@@ -448,6 +451,15 @@ func (o *Optimizer) warnLossyAlpha(input string) {
 }
 
 func (o *Optimizer) hasTransparency(input string) bool {
+	if cached, ok := o.transparency[input]; ok {
+		return cached
+	}
+	result := o.probeTransparency(input)
+	o.transparency[input] = result
+	return result
+}
+
+func (o *Optimizer) probeTransparency(input string) bool {
 	cmdName, err := o.imageMagickCommand()
 	if err != nil {
 		return false

@@ -47,3 +47,32 @@ func TestAVIFKeepsFullyTransparentPixels(t *testing.T) {
 		t.Fatalf("corner alpha = %s, want 0", alpha)
 	}
 }
+
+// Opake Bilder bleiben auf dem ImageMagick-Pfad, avifenc wird nicht aufgerufen.
+func TestAVIFOpaqueImageSkipsAvifenc(t *testing.T) {
+	if _, err := exec.LookPath("magick"); err != nil {
+		t.Skip("magick not installed")
+	}
+
+	dir := t.TempDir()
+	input := filepath.Join(dir, "src.png")
+	output := filepath.Join(dir, "out.avif")
+	if out, err := exec.Command("magick", "-size", "32x32", "xc:blue", input).CombinedOutput(); err != nil {
+		t.Fatalf("creating test image: %v: %s", err, out)
+	}
+
+	// avifenc-Aufruf würde diese Datei anlegen und wieder löschen; der Pfad
+	// darf gar nicht erst betreten werden.
+	opt := New(Config{InputPath: input, OutputPath: output, Quality: 60, Silent: true})
+	if opt.hasTransparency(input) {
+		t.Fatal("opaque image reported as transparent")
+	}
+	if err := opt.resizeImageWithDimensions(input, output, ""); err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if _, err := exec.LookPath("avifenc"); err == nil {
+		if _, ok := opt.toolCache["avifenc"]; ok {
+			t.Fatal("avifenc was consulted for an opaque image")
+		}
+	}
+}
