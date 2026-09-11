@@ -48,6 +48,24 @@ func TestAVIFKeepsFullyTransparentPixels(t *testing.T) {
 	}
 }
 
+// Premultiplied Alpha muss immer gesetzt sein: manche (v. a. schwächere
+// Android-)Decoder blenden non-premultiplied Alpha fehlerhaft und zeigen
+// dadurch einen sichtbaren grauen Schatten an transparenten Rändern.
+func TestAVIFEncodesWithPremultipliedAlpha(t *testing.T) {
+	args := avifencArgs(60, "src.png", "out.avif")
+
+	found := false
+	for _, a := range args {
+		if a == "--premultiply" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("avifenc args missing --premultiply: %v", args)
+	}
+}
+
 // Opake Bilder bleiben auf dem ImageMagick-Pfad, avifenc wird nicht aufgerufen.
 func TestAVIFOpaqueImageSkipsAvifenc(t *testing.T) {
 	if _, err := exec.LookPath("magick"); err != nil {

@@ -410,8 +410,24 @@ func (o *Optimizer) encode(magickArgs []string, output string) error {
 	return o.runImageMagick(args)
 }
 
+// avifencArgs builds the avifenc argument list for encoding tempPNG to output
+// at the given quality. Premultiplied alpha is signalled explicitly: some
+// (mostly weaker/older Android) AVIF decoders blend non-premultiplied alpha
+// incorrectly and let color bleed through fully or partially transparent
+// pixels as a visible grey/dark haze, even though the bitstream itself is
+// correct.
+func avifencArgs(quality int, tempPNG, output string) []string {
+	return []string{
+		"-q", strconv.Itoa(quality),
+		"--qalpha", "100",
+		"--premultiply",
+		tempPNG,
+		output,
+	}
+}
+
 // encodeAVIF renders the ImageMagick pipeline to a lossless temp PNG and encodes
-// it with avifenc using lossless alpha.
+// it with avifenc using lossless, premultiplied alpha.
 func (o *Optimizer) encodeAVIF(magickArgs []string, output string) error {
 	tempPNG := strings.TrimSuffix(output, filepath.Ext(output)) + "_avifsrc.png"
 	defer os.Remove(tempPNG)
@@ -420,12 +436,7 @@ func (o *Optimizer) encodeAVIF(magickArgs []string, output string) error {
 		return err
 	}
 
-	args := []string{
-		"-q", strconv.Itoa(o.config.Quality),
-		"--qalpha", "100",
-		tempPNG,
-		output,
-	}
+	args := avifencArgs(o.config.Quality, tempPNG, output)
 
 	if o.config.Verbose {
 		fmt.Printf("[verbose] Executing: avifenc %s\n", strings.Join(args, " "))
