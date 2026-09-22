@@ -541,9 +541,9 @@ func (o *Optimizer) optimizePNG(filepath string) ([]string, error) {
 	// Try pngquant
 	if available, _ := o.checkTool("pngquant"); available {
 		if o.config.Verbose {
-			fmt.Printf("[verbose] Executing: pngquant --force --quality=65-95 --output %s %s\n", filepath, filepath)
+			fmt.Printf("[verbose] Executing: pngquant --force --quality=0-95 --output %s %s\n", filepath, filepath)
 		}
-		cmd := exec.Command("pngquant", "--force", "--quality=65-95", "--output", filepath, filepath)
+		cmd := exec.Command("pngquant", "--force", "--quality=0-95", "--output", filepath, filepath)
 		if err := cmd.Run(); err != nil {
 			if !o.config.Silent && !o.config.Verbose {
 				fmt.Printf("pngquant failed: %v\n", err)
