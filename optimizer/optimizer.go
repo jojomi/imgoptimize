@@ -591,6 +591,27 @@ func (o *Optimizer) optimizePNG(filepath string) ([]string, error) {
 		}
 	}
 
+	// Try zopflipng as final lossless recompression
+	if available, _ := o.checkTool("zopflipng"); available {
+		if o.config.Verbose {
+			fmt.Printf("[verbose] Executing: zopflipng -y -m %s %s\n", filepath, filepath)
+		}
+		cmd := exec.Command("zopflipng", "-y", "-m", filepath, filepath)
+		if err := cmd.Run(); err != nil {
+			if !o.config.Silent && !o.config.Verbose {
+				fmt.Printf("zopflipng failed: %v\n", err)
+			}
+			if o.config.Verbose {
+				fmt.Printf("[verbose] zopflipng failed: %v\n", err)
+			}
+		} else {
+			optimizers = append(optimizers, "zopflipng")
+			if o.config.Verbose {
+				fmt.Printf("[verbose] zopflipng completed successfully\n")
+			}
+		}
+	}
+
 	return optimizers, nil
 }
 

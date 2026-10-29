@@ -4,7 +4,7 @@
 It reduces image file sizes to meet a specific target (e.g. 200 KB) while keeping visual quality as high as possible.
 
 The tool works by **iteratively scaling and compressing** images, using **binary search** to find the optimal size–scale balance automatically.  
-It optionally removes metadata and applies post-processing optimizers like `pngquant`, `oxipng`, or `jpegoptim` for smaller final files.
+It optionally removes metadata and applies post-processing optimizers like `pngquant`, `oxipng`, `zopflipng`, or `jpegoptim` for smaller final files.
 
 
 ## Key Features
@@ -12,7 +12,7 @@ It optionally removes metadata and applies post-processing optimizers like `pngq
 - Automatic binary search for optimal scale (fast convergence)
 - Precise control over target file size (e.g. `200k`, `1.5M`)
 - Optional metadata cleanup using `mat2`
-- Post-compression with `pngquant`/`jpegoptim`/`oxipng`
+- Post-compression with `pngquant`/`jpegoptim`/`oxipng`/`zopflipng`
 - Easily converts formats (e.g. `.jpg → .png`)
 - Safe: reuses original only after successful optimization
 - Simple output path handling (see `:` notation below)
@@ -22,13 +22,13 @@ It optionally removes metadata and applies post-processing optimizers like `pngq
 You’ll need these command-line tools installed for best results:
 
 - [`ImageMagick`](https://imagemagick.org) (`magick` or `convert`)
-- Optional: `pngquant`, `oxipng`, `jpegoptim`, `mat2`
+- Optional: `pngquant`, `oxipng`, `zopflipng`, `jpegoptim`, `mat2`
 - Optional for AVIF: `avifenc` (libavif) – encodes the alpha channel lossless; without it ImageMagick is used and transparent images may show a grey haze on dark backgrounds
 
 Install on Debian/Ubuntu:
 
 ```
-sudo apt install imagemagick pngquant oxipng jpegoptim mat2 libavif-bin
+sudo apt install imagemagick pngquant oxipng zopfli jpegoptim mat2 libavif-bin
 ```
 
 ## Usage

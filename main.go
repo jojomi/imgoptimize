@@ -44,7 +44,7 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "imgoptimize [input-file]",
 	Short: "Optimize image files (no scaling)",
-	Long: `imgoptimize optimizes image files using pngquant/oxipng/jpegoptim/mat2.
+	Long: `imgoptimize optimizes image files using pngquant/oxipng/zopflipng/jpegoptim/mat2.
 Optionally resize with --width and/or --height (maintains aspect ratio if only one is set).
 Use the scale-down-to-filesize subcommand if you want to resize to a target file size.`,
 	Args:    cobra.ExactArgs(1),
@@ -67,7 +67,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&silent, "silent", "s", false, "no output")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output (show optimizer discovery and execution)")
 	rootCmd.PersistentFlags().BoolVarP(&inplace, "inplace", "i", false, "optimize file in-place")
-	rootCmd.PersistentFlags().BoolVar(&skipPostOptim, "skip-post-optim", false, "skip post-optimization with pngquant/jpegoptim")
+	rootCmd.PersistentFlags().BoolVar(&skipPostOptim, "skip-post-optim", false, "skip post-optimization with pngquant/oxipng/zopflipng/jpegoptim")
 
 	// Root command specific flags for dimensions (accept pixels or percent)
 	rootCmd.Flags().StringVar(&widthStr, "width", "", "target width (pixels e.g. 800 or percent e.g. 50%)")
