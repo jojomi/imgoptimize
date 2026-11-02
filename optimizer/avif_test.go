@@ -66,6 +66,18 @@ func TestAVIFEncodesWithPremultipliedAlpha(t *testing.T) {
 	}
 }
 
+// Für kleinstmögliche Dateien kodiert avifenc mit der langsamsten Stufe und
+// 4:2:0 wie der ImageMagick-Pfad; avifenc wählt bei PNG-Eingabe sonst 4:4:4.
+func TestAVIFEncodesAtSlowestSpeedWith420(t *testing.T) {
+	args := strings.Join(avifencArgs(60, "src.png", "out.avif"), " ")
+
+	for _, want := range []string{"-s 0", "-y 420"} {
+		if !strings.Contains(args, want) {
+			t.Errorf("avifenc args missing %q: %s", want, args)
+		}
+	}
+}
+
 // Opake Bilder bleiben auf dem ImageMagick-Pfad, avifenc wird nicht aufgerufen.
 func TestAVIFOpaqueImageSkipsAvifenc(t *testing.T) {
 	if _, err := exec.LookPath("magick"); err != nil {
