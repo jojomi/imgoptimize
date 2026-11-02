@@ -45,7 +45,7 @@ var rootCmd = &cobra.Command{
 	Use:   "imgoptimize [input-file]",
 	Short: "Optimize image files (no scaling)",
 	Long: `imgoptimize optimizes image files using pngquant/oxipng/zopflipng/jpegoptim/gifsicle.
-Metadata (EXIF, GPS, XMP, ICC) is always stripped.
+Metadata (EXIF, GPS, XMP, comments) is always stripped, an RGB color profile is kept.
 Optionally resize with --width and/or --height (maintains aspect ratio if only one is set).
 Use the scale-down-to-filesize subcommand if you want to resize to a target file size.`,
 	Args:    cobra.ExactArgs(1),
@@ -65,7 +65,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVarP(&outputPath, "output", "o", "", "output file path, format (jpg/png/webp), or :filename for input-relative path")
 	rootCmd.PersistentFlags().IntVarP(&quality, "quality", "q", 85, "image quality (0-100)")
 	rootCmd.PersistentFlags().BoolVar(&stripMetadata, "strip-metadata", false, "")
-	_ = rootCmd.PersistentFlags().MarkDeprecated("strip-metadata", "metadata is always stripped now")
+	_ = rootCmd.PersistentFlags().MarkDeprecated("strip-metadata", "metadata is always stripped now, an RGB color profile is kept")
 	rootCmd.PersistentFlags().BoolVarP(&silent, "silent", "s", false, "no output")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output (show optimizer discovery and execution)")
 	rootCmd.PersistentFlags().BoolVarP(&inplace, "inplace", "i", false, "optimize file in-place")
