@@ -661,6 +661,12 @@ func (o *Optimizer) postOptimize(filepath string) ([]string, error) {
 			return optimizers, err
 		}
 		optimizers = append(optimizers, used...)
+	case ".gif":
+		used, err := o.optimizeGIF(filepath)
+		if err != nil {
+			return optimizers, err
+		}
+		optimizers = append(optimizers, used...)
 	}
 
 	return optimizers, nil
@@ -753,6 +759,31 @@ func (o *Optimizer) optimizeJPEG(filepath string) ([]string, error) {
 		optimizers = append(optimizers, "jpegoptim")
 		if o.config.Verbose {
 			fmt.Printf("[verbose] jpegoptim completed successfully\n")
+		}
+	}
+
+	return optimizers, nil
+}
+
+// optimizeGIF recompresses losslessly with gifsicle. Animations shrink most,
+// because -O3 stores only the changed area of each frame.
+func (o *Optimizer) optimizeGIF(filepath string) ([]string, error) {
+	optimizers := []string{}
+
+	if available, _ := o.checkTool("gifsicle"); available {
+		if o.config.Verbose {
+			fmt.Printf("[verbose] Executing: gifsicle -b -O3 %s\n", filepath)
+		}
+		cmd := exec.Command("gifsicle", "-b", "-O3", filepath)
+		if outputBytes, err := cmd.CombinedOutput(); err != nil {
+			if o.config.Verbose {
+				fmt.Printf("[verbose] gifsicle failed: %v\n", err)
+			}
+			return optimizers, fmt.Errorf("gifsicle failed: %w, output: %s", err, string(outputBytes))
+		}
+		optimizers = append(optimizers, "gifsicle")
+		if o.config.Verbose {
+			fmt.Printf("[verbose] gifsicle completed successfully\n")
 		}
 	}
 
