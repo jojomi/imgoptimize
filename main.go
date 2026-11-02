@@ -44,7 +44,8 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "imgoptimize [input-file]",
 	Short: "Optimize image files (no scaling)",
-	Long: `imgoptimize optimizes image files using pngquant/oxipng/zopflipng/jpegoptim/mat2.
+	Long: `imgoptimize optimizes image files using pngquant/oxipng/zopflipng/jpegoptim.
+Metadata (EXIF, GPS, XMP, ICC) is always stripped.
 Optionally resize with --width and/or --height (maintains aspect ratio if only one is set).
 Use the scale-down-to-filesize subcommand if you want to resize to a target file size.`,
 	Args:    cobra.ExactArgs(1),
@@ -63,7 +64,8 @@ var scaleDownToFilesizeCmd = &cobra.Command{
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&outputPath, "output", "o", "", "output file path, format (jpg/png/webp), or :filename for input-relative path")
 	rootCmd.PersistentFlags().IntVarP(&quality, "quality", "q", 85, "image quality (0-100)")
-	rootCmd.PersistentFlags().BoolVar(&stripMetadata, "strip-metadata", false, "strip metadata using mat2")
+	rootCmd.PersistentFlags().BoolVar(&stripMetadata, "strip-metadata", false, "")
+	_ = rootCmd.PersistentFlags().MarkDeprecated("strip-metadata", "metadata is always stripped now")
 	rootCmd.PersistentFlags().BoolVarP(&silent, "silent", "s", false, "no output")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output (show optimizer discovery and execution)")
 	rootCmd.PersistentFlags().BoolVarP(&inplace, "inplace", "i", false, "optimize file in-place")
@@ -184,7 +186,6 @@ func runJustOptimize(cmd *cobra.Command, args []string) error {
 		InputPath:     absInput,
 		OutputPath:    output,
 		Quality:       quality,
-		StripMetadata: stripMetadata,
 		Silent:        silent,
 		Verbose:       verbose,
 		SkipPostOptim: skipPostOptim,
@@ -235,9 +236,6 @@ func runJustOptimize(cmd *cobra.Command, args []string) error {
 		if len(result.OptimizersUsed) > 0 {
 			fmt.Printf("  Optimizers: %s\n", strings.Join(result.OptimizersUsed, ", "))
 		}
-		if result.MetadataStripped {
-			fmt.Printf("  Metadata: stripped\n")
-		}
 	}
 
 	return nil
@@ -273,7 +271,6 @@ func runOptimizeWithTarget(cmd *cobra.Command, args []string) error {
 		OutputPath:    output,
 		TargetBytes:   targetBytes,
 		Quality:       quality,
-		StripMetadata: stripMetadata,
 		Silent:        silent,
 		Verbose:       verbose,
 		SkipPostOptim: skipPostOptim,
@@ -309,9 +306,6 @@ func runOptimizeWithTarget(cmd *cobra.Command, args []string) error {
 		fmt.Printf("  Iterations: %d\n", result.Iterations)
 		if len(result.OptimizersUsed) > 0 {
 			fmt.Printf("  Optimizers: %s\n", strings.Join(result.OptimizersUsed, ", "))
-		}
-		if result.MetadataStripped {
-			fmt.Printf("  Metadata: stripped\n")
 		}
 	}
 

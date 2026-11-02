@@ -4,14 +4,14 @@
 It reduces image file sizes to meet a specific target (e.g. 200 KB) while keeping visual quality as high as possible.
 
 The tool works by **iteratively scaling and compressing** images, using **binary search** to find the optimal size–scale balance automatically.  
-It optionally removes metadata and applies post-processing optimizers like `pngquant`, `oxipng`, `zopflipng`, or `jpegoptim` for smaller final files.
+It always removes metadata and applies post-processing optimizers like `pngquant`, `oxipng`, `zopflipng`, or `jpegoptim` for smaller final files.
 
 
 ## Key Features
 
 - Automatic binary search for optimal scale (fast convergence)
 - Precise control over target file size (e.g. `200k`, `1.5M`)
-- Optional metadata cleanup using `mat2`
+- Always strips metadata (EXIF, GPS, XMP, ICC)
 - Post-compression with `pngquant`/`jpegoptim`/`oxipng`/`zopflipng`
 - WebP: encodes lossy and lossless and keeps the smaller file (graphics and screenshots often end up lossless and several times smaller)
 - Easily converts formats (e.g. `.jpg → .png`)
@@ -23,13 +23,13 @@ It optionally removes metadata and applies post-processing optimizers like `pngq
 You’ll need these command-line tools installed for best results:
 
 - [`ImageMagick`](https://imagemagick.org) (`magick` or `convert`)
-- Optional: `pngquant`, `oxipng`, `zopflipng`, `jpegoptim`, `mat2`
+- Optional: `pngquant`, `oxipng`, `zopflipng`, `jpegoptim`
 - Optional for AVIF: `avifenc` (libavif) – encodes the alpha channel lossless; without it ImageMagick is used and transparent images may show a grey haze on dark backgrounds
 
 Install on Debian/Ubuntu:
 
 ```
-sudo apt install imagemagick pngquant oxipng zopfli jpegoptim mat2 libavif-bin
+sudo apt install imagemagick pngquant oxipng zopfli jpegoptim libavif-bin
 ```
 
 ## Usage
@@ -68,14 +68,6 @@ imgoptimize scale-down-to-filesize 150k /tmp/image.png --output :resized.png
 
 Output: /tmp/resized.png
 
-### With metadata stripping
-
-```
-imgoptimize scale-down-to-filesize 200k photo.jpg --strip-metadata
-```
-
-Removes EXIF and other metadata using `mat2`.
-
 ### With quiet mode and custom quality
 
 ```
@@ -96,8 +88,7 @@ Original size: 1.2 MiB
 Final size: 198.7 KiB
 Scale: 55%
 Iterations: 5
-Optimizers: pngquant, mat2
-Metadata: stripped
+Optimizers: pngquant, oxipng, zopflipng
 ```
 
 ## Output Path Rules

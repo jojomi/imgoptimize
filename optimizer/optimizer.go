@@ -17,7 +17,6 @@ type Config struct {
 	OutputPath    string
 	TargetBytes   int64
 	Quality       int
-	StripMetadata bool
 	Silent        bool
 	Verbose       bool
 	SkipPostOptim bool
@@ -26,13 +25,12 @@ type Config struct {
 }
 
 type Result struct {
-	OriginalSize     int64
-	FinalSize        int64
-	FinalScale       int
-	Iterations       int
-	MetadataStripped bool
-	OptimizersUsed   []string
-	Dimensions       string
+	OriginalSize   int64
+	FinalSize      int64
+	FinalScale     int
+	Iterations     int
+	OptimizersUsed []string
+	Dimensions     string
 }
 
 type Optimizer struct {
@@ -93,12 +91,11 @@ func (o *Optimizer) checkTool(name string) (bool, string) {
 	return info.available, path
 }
 
-// OptimizeWithoutResize optimizes image without resizing (format conversion, post-optimization, metadata stripping)
+// OptimizeWithoutResize optimizes image without resizing (format conversion, post-optimization)
 func OptimizeWithoutResize(config Config) (*Result, error) {
 	result := &Result{
-		FinalScale:       100,
-		MetadataStripped: false,
-		OptimizersUsed:   []string{},
+		FinalScale:     100,
+		OptimizersUsed: []string{},
 	}
 
 	// Get original size
@@ -162,24 +159,6 @@ func OptimizeWithoutResize(config Config) (*Result, error) {
 		}
 	}
 
-	// Strip metadata
-	if config.StripMetadata {
-		if config.Verbose {
-			fmt.Printf("[verbose] Stripping metadata...\n")
-		}
-		if err := opt.stripMetadata(config.OutputPath); err != nil {
-			if !config.Silent && !config.Verbose {
-				fmt.Printf("Warning: metadata stripping failed: %v\n", err)
-			}
-			if config.Verbose {
-				fmt.Printf("[verbose] Metadata stripping failed: %v\n", err)
-			}
-		} else {
-			result.MetadataStripped = true
-			result.OptimizersUsed = append(result.OptimizersUsed, "mat2")
-		}
-	}
-
 	// Get final size
 	finalInfo, err := os.Stat(config.OutputPath)
 	if err != nil {
@@ -202,10 +181,9 @@ func (o *Optimizer) Optimize() (*Result, error) {
 	}
 
 	result := &Result{
-		OriginalSize:     originalInfo.Size(),
-		FinalScale:       100,
-		MetadataStripped: false,
-		OptimizersUsed:   []string{},
+		OriginalSize:   originalInfo.Size(),
+		FinalScale:     100,
+		OptimizersUsed: []string{},
 	}
 
 	if o.config.Verbose {
@@ -273,20 +251,7 @@ func (o *Optimizer) Optimize() (*Result, error) {
 			}
 		}
 
-		// Strip metadata BEFORE size check (if requested)
-		metadataStripped := false
-		if o.config.StripMetadata {
-			if err := o.stripMetadata(tempOutput); err != nil {
-				if !o.config.Silent && !o.config.Verbose {
-					fmt.Printf("Warning: metadata stripping failed: %v\n", err)
-				}
-			} else {
-				metadataStripped = true
-				iterationOptimizers = append(iterationOptimizers, "mat2")
-			}
-		}
-
-		// Check file size AFTER post-optimization AND metadata stripping
+		// Check file size AFTER post-optimization
 		info, err := os.Stat(tempOutput)
 		if err != nil {
 			os.Remove(tempOutput) // Clean up on error
@@ -302,7 +267,6 @@ func (o *Optimizer) Optimize() (*Result, error) {
 			// Try to find a larger scale that still fits (better quality)
 			bestScale = currentScale
 			bestSize = info.Size()
-			result.MetadataStripped = metadataStripped
 			bestOptimizers = iterationOptimizers
 
 			if !o.config.Silent {
@@ -696,30 +660,6 @@ func (o *Optimizer) optimizeJPEG(filepath string) ([]string, error) {
 	}
 
 	return optimizers, nil
-}
-
-func (o *Optimizer) stripMetadata(filepath string) error {
-	available, _ := o.checkTool("mat2")
-	if !available {
-		return fmt.Errorf("mat2 not found in PATH")
-	}
-
-	if o.config.Verbose {
-		fmt.Printf("[verbose] Executing: mat2 --inplace %s\n", filepath)
-	}
-
-	cmd := exec.Command("mat2", "--inplace", filepath)
-	if err := cmd.Run(); err != nil {
-		if o.config.Verbose {
-			fmt.Printf("[verbose] mat2 failed: %v\n", err)
-		}
-		return fmt.Errorf("mat2 failed: %w", err)
-	}
-	if o.config.Verbose {
-		fmt.Printf("[verbose] mat2 completed successfully\n")
-	}
-
-	return nil
 }
 
 func (o *Optimizer) copyWithConversion(input, output string, scale int) error {
