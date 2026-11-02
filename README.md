@@ -24,6 +24,7 @@ You’ll need these command-line tools installed for best results:
 
 - [`ImageMagick`](https://imagemagick.org) (`magick` or `convert`)
 - Optional: `pngquant`, `oxipng`, `zopflipng`, `jpegoptim`
+- Optional for JPEG: `mozjpeg` – about 20 % smaller than ImageMagick at the same quality; found on `PATH` or in the Homebrew keg (`brew install mozjpeg`)
 - Optional for AVIF: `avifenc` (libavif) – encodes the alpha channel lossless; without it ImageMagick is used and transparent images may show a grey haze on dark backgrounds
 
 Install on Debian/Ubuntu:

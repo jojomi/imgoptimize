@@ -364,10 +364,23 @@ func (o *Optimizer) encode(magickArgs []string, output string) error {
 		return o.encodeWebP(magickArgs, output)
 	}
 
+	isJPEG := outputExt == ".jpg" || outputExt == ".jpeg"
+	if isJPEG {
+		if cjpeg := o.mozjpegPath(); cjpeg != "" {
+			return o.encodeMozJPEG(cjpeg, magickArgs, output)
+		}
+	}
+
 	args := append(magickArgs,
 		"-quality", strconv.Itoa(o.config.Quality),
 		"-strip", // Strip basic metadata
 	)
+
+	// ImageMagick switches to full chroma resolution from quality 90 on, which
+	// makes files much larger; progressive saves about 10 % losslessly.
+	if isJPEG {
+		args = append(args, "-sampling-factor", "4:2:0", "-interlace", "Plane")
+	}
 
 	// PNG-specific optimizations
 	if outputExt == ".png" {
@@ -395,6 +408,82 @@ func webpArgs(magickArgs []string, quality int, lossless bool, output string) []
 	}
 
 	return append(args, output)
+}
+
+// mozjpegCandidates lists where cjpeg from mozjpeg is usually found. Homebrew
+// installs mozjpeg keg-only (not on PATH) because it conflicts with
+// libjpeg-turbo; a source build installs to /opt/mozjpeg.
+var mozjpegCandidates = []string{
+	"cjpeg",
+	"/opt/homebrew/opt/mozjpeg/bin/cjpeg",
+	"/usr/local/opt/mozjpeg/bin/cjpeg",
+	"/opt/mozjpeg/bin/cjpeg",
+}
+
+// mozjpegPath returns the path of a cjpeg built from mozjpeg, or "" if none is
+// installed. A cjpeg from libjpeg-turbo is ignored.
+func (o *Optimizer) mozjpegPath() string {
+	o.cacheMux.Lock()
+	defer o.cacheMux.Unlock()
+
+	if info, ok := o.toolCache["mozjpeg"]; ok {
+		return info.path
+	}
+
+	info := &toolInfo{checked: true}
+	for _, candidate := range mozjpegCandidates {
+		path, err := exec.LookPath(candidate)
+		if err != nil {
+			continue
+		}
+		version, _ := exec.Command(path, "-version").CombinedOutput()
+		if strings.Contains(string(version), "mozjpeg") {
+			info.available = true
+			info.path = path
+			break
+		}
+	}
+	o.toolCache["mozjpeg"] = info
+
+	if o.config.Verbose {
+		if info.available {
+			fmt.Printf("[verbose] Found mozjpeg at: %s\n", info.path)
+		} else {
+			fmt.Printf("[verbose] mozjpeg not found, encoding JPEG with ImageMagick\n")
+		}
+	}
+
+	return info.path
+}
+
+// encodeMozJPEG renders the ImageMagick pipeline to a temp PPM and encodes it
+// with mozjpeg, about 20 % smaller than ImageMagick at the same quality.
+// mozjpeg writes progressive JPEGs by default; 4:2:0 is forced because mozjpeg
+// otherwise picks 4:2:2 or 4:4:4 depending on quality.
+func (o *Optimizer) encodeMozJPEG(cjpeg string, magickArgs []string, output string) error {
+	tempPPM := strings.TrimSuffix(output, filepath.Ext(output)) + "_mozsrc.ppm"
+	defer os.Remove(tempPPM)
+
+	if err := o.runImageMagick(append(slices.Clone(magickArgs), "-strip", "-depth", "8", tempPPM)); err != nil {
+		return err
+	}
+
+	args := []string{
+		"-quality", strconv.Itoa(o.config.Quality),
+		"-sample", "2x2",
+		"-outfile", output,
+		tempPPM,
+	}
+
+	if o.config.Verbose {
+		fmt.Printf("[verbose] Executing: %s %s\n", cjpeg, strings.Join(args, " "))
+	}
+
+	if outputBytes, err := exec.Command(cjpeg, args...).CombinedOutput(); err != nil {
+		return fmt.Errorf("mozjpeg failed: %w, output: %s", err, string(outputBytes))
+	}
+
+	return nil
 }
 
 // encodeWebP encodes both lossy and lossless and keeps the smaller file.
