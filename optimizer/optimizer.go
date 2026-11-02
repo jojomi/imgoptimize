@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -395,6 +396,10 @@ func (o *Optimizer) encode(magickArgs []string, output string) error {
 		o.warnLossyAlpha()
 	}
 
+	if outputExt == ".webp" {
+		return o.encodeWebP(magickArgs, output)
+	}
+
 	args := append(magickArgs,
 		"-quality", strconv.Itoa(o.config.Quality),
 		"-strip", // Strip basic metadata
@@ -405,15 +410,63 @@ func (o *Optimizer) encode(magickArgs []string, output string) error {
 		args = append(args, "-define", "png:compression-level=9")
 	}
 
-	// Slowest, most thorough libwebp method for the smallest output.
-	// Sharp YUV is left out on purpose: it adds 4–13 % size.
-	if outputExt == ".webp" {
-		args = append(args, "-define", "webp:method=6")
-	}
-
 	args = append(args, output)
 
 	return o.runImageMagick(args)
+}
+
+// webpArgs builds the ImageMagick arguments for a WebP encode. method=6 is the
+// slowest, most thorough libwebp method for the smallest output. Sharp YUV is
+// left out on purpose: it adds 4–13 % size. In lossless mode quality sets the
+// compression effort, not the fidelity.
+func webpArgs(magickArgs []string, quality int, lossless bool, output string) []string {
+	args := slices.Clone(magickArgs)
+	args = append(args,
+		"-quality", strconv.Itoa(quality),
+		"-strip",
+		"-define", "webp:method=6",
+	)
+	if lossless {
+		args = append(args, "-define", "webp:lossless=true")
+	}
+
+	return append(args, output)
+}
+
+// encodeWebP encodes both lossy and lossless and keeps the smaller file.
+// Flat graphics, screenshots and logos are often several times smaller
+// lossless, while photos are much smaller lossy.
+func (o *Optimizer) encodeWebP(magickArgs []string, output string) error {
+	if err := o.runImageMagick(webpArgs(magickArgs, o.config.Quality, false, output)); err != nil {
+		return err
+	}
+
+	losslessOutput := strings.TrimSuffix(output, filepath.Ext(output)) + "_lossless.webp"
+	defer os.Remove(losslessOutput)
+
+	if err := o.runImageMagick(webpArgs(magickArgs, 100, true, losslessOutput)); err != nil {
+		return err
+	}
+
+	lossyInfo, err := os.Stat(output)
+	if err != nil {
+		return err
+	}
+	losslessInfo, err := os.Stat(losslessOutput)
+	if err != nil {
+		return err
+	}
+
+	if losslessInfo.Size() >= lossyInfo.Size() {
+		return nil
+	}
+
+	if o.config.Verbose {
+		fmt.Printf("[verbose] WebP lossless is smaller (%s vs. %s lossy), keeping lossless\n",
+			formatBytes(losslessInfo.Size()), formatBytes(lossyInfo.Size()))
+	}
+
+	return os.Rename(losslessOutput, output)
 }
 
 // avifencArgs builds the avifenc argument list for encoding tempPNG to output

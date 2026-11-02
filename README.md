@@ -13,6 +13,7 @@ It optionally removes metadata and applies post-processing optimizers like `pngq
 - Precise control over target file size (e.g. `200k`, `1.5M`)
 - Optional metadata cleanup using `mat2`
 - Post-compression with `pngquant`/`jpegoptim`/`oxipng`/`zopflipng`
+- WebP: encodes lossy and lossless and keeps the smaller file (graphics and screenshots often end up lossless and several times smaller)
 - Easily converts formats (e.g. `.jpg → .png`)
 - Safe: reuses original only after successful optimization
 - Simple output path handling (see `:` notation below)
