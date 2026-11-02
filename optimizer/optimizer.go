@@ -405,6 +405,12 @@ func (o *Optimizer) encode(magickArgs []string, output string) error {
 		args = append(args, "-define", "png:compression-level=9")
 	}
 
+	// Slowest, most thorough libwebp method for the smallest output.
+	// Sharp YUV is left out on purpose: it adds 4–13 % size.
+	if outputExt == ".webp" {
+		args = append(args, "-define", "webp:method=6")
+	}
+
 	args = append(args, output)
 
 	return o.runImageMagick(args)
