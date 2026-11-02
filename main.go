@@ -263,7 +263,7 @@ func runOptimizeWithTarget(cmd *cobra.Command, args []string) error {
 
 	targetBytes, err := optimizer.ParseSize(targetSizeStr)
 	if err != nil {
-		return fmt.Errorf("invalid target size: %w", err)
+		return err
 	}
 
 	config := optimizer.Config{
