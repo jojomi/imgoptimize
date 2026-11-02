@@ -45,7 +45,7 @@ var rootCmd = &cobra.Command{
 	Use:   "imgoptimize [input-file]",
 	Short: "Optimize image files (no scaling)",
 	Long: `imgoptimize optimizes image files using pngquant/oxipng/zopflipng/jpegoptim/gifsicle.
-Metadata (EXIF, GPS, XMP, ICC) is always stripped.
+Metadata (EXIF, GPS, XMP, ICC) is always stripped; images with a color profile are converted to sRGB first.
 Optionally resize with --width and/or --height (maintains aspect ratio if only one is set).
 Use the scale-down-to-filesize subcommand if you want to resize to a target file size.`,
 	Args:    cobra.ExactArgs(1),

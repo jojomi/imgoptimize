@@ -11,7 +11,7 @@ It always removes metadata and applies post-processing optimizers like `pngquant
 
 - Automatic binary search for optimal scale (fast convergence)
 - Precise control over target file size (e.g. `200k`, `1.5M`)
-- Always strips metadata (EXIF, GPS, XMP, ICC)
+- Always strips metadata (EXIF, GPS, XMP, comments, color profile). Images with a color profile (e.g. Display P3, Adobe RGB, CMYK) are converted to sRGB first, which browsers assume for untagged images; only colors outside sRGB are clipped. The bundled sRGB profile is from [Compact ICC Profiles](https://github.com/saucecontrol/Compact-ICC-Profiles) (CC0)
 - Post-compression with `pngquant`/`jpegoptim`/`oxipng`/`zopflipng`/`gifsicle`
 - JPEG via `mozjpeg`, progressive with 4:2:0 chroma subsampling
 - AVIF at the slowest, most thorough encoder speed

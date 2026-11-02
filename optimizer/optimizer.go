@@ -2,6 +2,7 @@
 package optimizer
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"os/exec"
@@ -353,28 +354,34 @@ func (o *Optimizer) resizeImage(input, output string, scalePercent int) error {
 func (o *Optimizer) encode(magickArgs []string, output string) error {
 	outputExt := strings.ToLower(filepath.Ext(output))
 
+	srgb := strings.TrimSuffix(output, filepath.Ext(output)) + "_srgb.icc"
+	if err := os.WriteFile(srgb, srgbProfile, 0o644); err != nil {
+		return fmt.Errorf("failed to write sRGB profile: %w", err)
+	}
+	defer os.Remove(srgb)
+	strip := stripArgs(srgb)
+
 	if outputExt == ".avif" && o.hasTransparency(magickArgs[0]) {
 		if available, _ := o.checkTool("avifenc"); available {
-			return o.encodeAVIF(magickArgs, output)
+			return o.encodeAVIF(magickArgs, strip, output)
 		}
 		o.warnLossyAlpha()
 	}
 
 	if outputExt == ".webp" {
-		return o.encodeWebP(magickArgs, output)
+		return o.encodeWebP(magickArgs, strip, output)
 	}
 
 	isJPEG := outputExt == ".jpg" || outputExt == ".jpeg"
 	if isJPEG {
 		if cjpeg := o.mozjpegPath(); cjpeg != "" {
-			return o.encodeMozJPEG(cjpeg, magickArgs, output)
+			return o.encodeMozJPEG(cjpeg, magickArgs, strip, output)
 		}
 	}
 
-	args := append(magickArgs,
-		"-quality", strconv.Itoa(o.config.Quality),
-		"-strip", // Strip basic metadata
-	)
+	args := slices.Clone(magickArgs)
+	args = append(args, "-quality", strconv.Itoa(o.config.Quality))
+	args = append(args, strip...)
 
 	// ImageMagick switches to full chroma resolution from quality 90 on, which
 	// makes files much larger; progressive saves about 10 % losslessly.
@@ -397,17 +404,29 @@ func (o *Optimizer) encode(magickArgs []string, output string) error {
 	return o.runImageMagick(args)
 }
 
+// srgbProfile is the compact sRGB v4 profile from
+// https://github.com/saucecontrol/Compact-ICC-Profiles (CC0).
+//
+//go:embed srgb.icc
+var srgbProfile []byte
+
+// stripArgs converts an image with a color profile to sRGB, then removes all
+// metadata including the profile. Browsers treat untagged images as sRGB, so
+// colors stay the same; only wide-gamut colors outside sRGB are clipped. An
+// image without a profile is assigned sRGB, which leaves its pixels unchanged.
+func stripArgs(srgbProfilePath string) []string {
+	return []string{"-profile", srgbProfilePath, "-strip"}
+}
+
 // webpArgs builds the ImageMagick arguments for a WebP encode. method=6 is the
 // slowest, most thorough libwebp method for the smallest output. Sharp YUV is
 // left out on purpose: it adds 4–13 % size. In lossless mode quality sets the
 // compression effort, not the fidelity.
-func webpArgs(magickArgs []string, quality int, lossless bool, output string) []string {
+func webpArgs(magickArgs, strip []string, quality int, lossless bool, output string) []string {
 	args := slices.Clone(magickArgs)
-	args = append(args,
-		"-quality", strconv.Itoa(quality),
-		"-strip",
-		"-define", "webp:method=6",
-	)
+	args = append(args, "-quality", strconv.Itoa(quality))
+	args = append(args, strip...)
+	args = append(args, "-define", "webp:method=6")
 	if lossless {
 		args = append(args, "-define", "webp:lossless=true")
 	}
@@ -465,11 +484,11 @@ func (o *Optimizer) mozjpegPath() string {
 // with mozjpeg, about 20 % smaller than ImageMagick at the same quality.
 // mozjpeg writes progressive JPEGs by default; 4:2:0 is forced because mozjpeg
 // otherwise picks 4:2:2 or 4:4:4 depending on quality.
-func (o *Optimizer) encodeMozJPEG(cjpeg string, magickArgs []string, output string) error {
+func (o *Optimizer) encodeMozJPEG(cjpeg string, magickArgs, strip []string, output string) error {
 	tempPPM := strings.TrimSuffix(output, filepath.Ext(output)) + "_mozsrc.ppm"
 	defer os.Remove(tempPPM)
 
-	if err := o.runImageMagick(append(slices.Clone(magickArgs), "-strip", "-depth", "8", tempPPM)); err != nil {
+	if err := o.runImageMagick(slices.Concat(magickArgs, strip, []string{"-depth", "8", tempPPM})); err != nil {
 		return err
 	}
 
@@ -494,15 +513,15 @@ func (o *Optimizer) encodeMozJPEG(cjpeg string, magickArgs []string, output stri
 // encodeWebP encodes both lossy and lossless and keeps the smaller file.
 // Flat graphics, screenshots and logos are often several times smaller
 // lossless, while photos are much smaller lossy.
-func (o *Optimizer) encodeWebP(magickArgs []string, output string) error {
-	if err := o.runImageMagick(webpArgs(magickArgs, o.config.Quality, false, output)); err != nil {
+func (o *Optimizer) encodeWebP(magickArgs, strip []string, output string) error {
+	if err := o.runImageMagick(webpArgs(magickArgs, strip, o.config.Quality, false, output)); err != nil {
 		return err
 	}
 
 	losslessOutput := strings.TrimSuffix(output, filepath.Ext(output)) + "_lossless.webp"
 	defer os.Remove(losslessOutput)
 
-	if err := o.runImageMagick(webpArgs(magickArgs, 100, true, losslessOutput)); err != nil {
+	if err := o.runImageMagick(webpArgs(magickArgs, strip, 100, true, losslessOutput)); err != nil {
 		return err
 	}
 
@@ -548,11 +567,11 @@ func avifencArgs(quality int, tempPNG, output string) []string {
 
 // encodeAVIF renders the ImageMagick pipeline to a lossless temp PNG and encodes
 // it with avifenc using lossless, premultiplied alpha.
-func (o *Optimizer) encodeAVIF(magickArgs []string, output string) error {
+func (o *Optimizer) encodeAVIF(magickArgs, strip []string, output string) error {
 	tempPNG := strings.TrimSuffix(output, filepath.Ext(output)) + "_avifsrc.png"
 	defer os.Remove(tempPNG)
 
-	if err := o.runImageMagick(append(magickArgs, "-strip", tempPNG)); err != nil {
+	if err := o.runImageMagick(slices.Concat(magickArgs, strip, []string{tempPNG})); err != nil {
 		return err
 	}
 
