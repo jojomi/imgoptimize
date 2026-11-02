@@ -12,7 +12,9 @@ It always removes metadata and applies post-processing optimizers like `pngquant
 - Automatic binary search for optimal scale (fast convergence)
 - Precise control over target file size (e.g. `200k`, `1.5M`)
 - Always strips metadata (EXIF, GPS, XMP, ICC)
-- Post-compression with `pngquant`/`jpegoptim`/`oxipng`/`zopflipng`
+- Post-compression with `pngquant`/`jpegoptim`/`oxipng`/`zopflipng`/`gifsicle`
+- JPEG via `mozjpeg`, progressive with 4:2:0 chroma subsampling
+- AVIF at the slowest, most thorough encoder speed
 - WebP: encodes lossy and lossless and keeps the smaller file (graphics and screenshots often end up lossless and several times smaller)
 - Easily converts formats (e.g. `.jpg → .png`)
 - Safe: reuses original only after successful optimization
@@ -20,17 +22,37 @@ It always removes metadata and applies post-processing optimizers like `pngquant
 
 ## Requirements
 
-You’ll need these command-line tools installed for best results:
+Only ImageMagick is required. Every other tool is optional: if it is missing, that step is skipped and the output gets larger (or, for AVIF, may look worse).
 
-- [`ImageMagick`](https://imagemagick.org) (`magick` or `convert`)
-- Optional: `pngquant`, `oxipng`, `zopflipng`, `jpegoptim`
-- Optional for JPEG: `mozjpeg` – about 20 % smaller than ImageMagick at the same quality; found on `PATH` or in the Homebrew keg (`brew install mozjpeg`)
-- Optional for AVIF: `avifenc` (libavif) – encodes the alpha channel lossless; without it ImageMagick is used and transparent images may show a grey haze on dark backgrounds
+| Tool | Required | Used for | macOS (Homebrew) | Debian/Ubuntu |
+|---|---|---|---|---|
+| [ImageMagick](https://imagemagick.org) (`magick` or `convert`) | **yes** | reading, resizing and encoding all formats; WebP and AVIF need its libwebp/libheif support | `imagemagick` | `imagemagick` |
+| [mozjpeg](https://github.com/mozilla/mozjpeg) (`cjpeg`) | no | JPEG: about 20 % smaller than ImageMagick at the same quality | `mozjpeg` ¹ | not packaged, build from source ² |
+| [jpegoptim](https://github.com/tjko/jpegoptim) | no | JPEG: lossless post-optimization | `jpegoptim` | `jpegoptim` |
+| [pngquant](https://pngquant.org) | no | PNG: lossy palette reduction | `pngquant` | `pngquant` |
+| [oxipng](https://github.com/shssoichiro/oxipng) | no | PNG: lossless recompression | `oxipng` | not packaged, `cargo install oxipng` ³ |
+| [zopflipng](https://github.com/google/zopfli) | no | PNG: lossless final recompression | `zopfli` | `zopfli` |
+| [gifsicle](https://www.lcdf.org/gifsicle/) | no | GIF: lossless recompression, about half the size for animations | `gifsicle` | `gifsicle` |
+| [avifenc](https://github.com/AOMediaCodec/libavif) | no | AVIF with transparency: lossless alpha; without it transparent images may show a grey haze on dark backgrounds | `libavif` | `libavif-bin` |
+| [exiftool](https://exiftool.org) | no (tests only) | checks in the test suite that metadata is removed | `exiftool` | `libimage-exiftool-perl` |
 
-Install on Debian/Ubuntu:
+¹ Homebrew installs mozjpeg keg-only (not on `PATH`, because it conflicts with libjpeg-turbo). `imgoptimize` finds it in the Homebrew keg anyway.
+
+² `imgoptimize` finds `cjpeg` on `PATH` or in `/opt/mozjpeg/bin` (the default install location of a source build). A `cjpeg` from libjpeg-turbo is ignored.
+
+³ Debian only ships the Rust library (`librust-oxipng-dev`), not the program. `cargo install oxipng` needs `cargo` (`sudo apt install cargo`) and puts the binary into `~/.cargo/bin`, which must be on `PATH`.
+
+Install everything on macOS:
 
 ```
-sudo apt install imagemagick pngquant oxipng zopfli jpegoptim libavif-bin
+brew install imagemagick mozjpeg jpegoptim pngquant oxipng zopfli gifsicle libavif
+```
+
+Install everything on Debian/Ubuntu (mozjpeg and oxipng see notes above):
+
+```
+sudo apt install imagemagick jpegoptim pngquant zopfli gifsicle libavif-bin
+cargo install oxipng
 ```
 
 ## Usage
