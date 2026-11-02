@@ -11,7 +11,7 @@ It always removes metadata and applies post-processing optimizers like `pngquant
 
 - Automatic binary search for optimal scale (fast convergence)
 - Precise control over target file size (e.g. `200k`, `1.5M`)
-- Always strips metadata (EXIF, GPS, XMP, comments) but keeps an RGB color profile (e.g. Display P3). Exception: `pngquant` converts PNGs with a color profile to sRGB, because keeping the profile would make them 2–3.6 times larger
+- Always strips metadata (EXIF, GPS, XMP, ICC)
 - Post-compression with `pngquant`/`jpegoptim`/`oxipng`/`zopflipng`/`gifsicle`
 - JPEG via `mozjpeg`, progressive with 4:2:0 chroma subsampling
 - AVIF at the slowest, most thorough encoder speed
